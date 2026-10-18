@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DocuMind — Hybrid Search RAG Engine</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#f0f7ff',
+              500: '#0284c7',
+              600: '#0369a1',
+              700: '#075985',
+              900: '#0c4a6e'
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    .highlight-match {
+      background-color: rgba(250, 204, 21, 0.25);
+      color: #fef08a;
+      padding: 0 3px;
+      border-radius: 2px;
+      font-weight: 600;
+    }
+    .citation-pill {
+      display: inline-flex;
+      align-items: center;
+      padding: 2px 8px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: #38bdf8;
+      background-color: rgba(56, 189, 248, 0.15);
+      border: 1px solid rgba(56, 189, 248, 0.3);
+      border-radius: 9999px;
+      cursor: pointer;
+      margin: 0 2px;
+      transition: all 0.15s ease;
+    }
+    .citation-pill:hover {
+      background-color: rgba(56, 189, 248, 0.35);
+      border-color: #38bdf8;
+    }
+    .chunk-highlight-active {
+      border-color: #38bdf8 !important;
+      box-shadow: 0 0 15px rgba(56, 189, 248, 0.4);
+    }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col font-sans antialiased">
+
+  <!-- Navigation Bar -->
+  <header class="border-b border-slate-800 bg-slate-900/80 backdrop-blur sticky top-0 z-30 px-6 py-3 flex items-center justify-between">
+    <div class="flex items-center space-x-3">
+      <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-sky-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-sky-500/20">
+        <i class="fa-solid fa-brain text-white text-lg"></i>
+      </div>
+      <div>
+        <h1 class="text-lg font-bold tracking-tight text-white flex items-center gap-2">
+          DocuMind
+          <span class="text-xs px-2 py-0.5 rounded-full font-semibold bg-sky-500/10 text-sky-400 border border-sky-500/20">Hybrid RAG</span>
+        </h1>
+        <p class="text-xs text-slate-400">Reciprocal Rank Fusion (RRF) &middot; Ollama Llama 3.2 &middot; Zero Hallucination</p>
+      </div>
+    </div>
+    <div class="flex items-center space-x-4">
+      <div id="statusBadge" class="flex items-center space-x-2 text-xs px-3 py-1.5 rounded-lg bg-slate-800/80 border border-slate-700">
+        <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+        <span id="statusText" class="text-slate-300">Checking Engine...</span>
+      </div>
+      <a href="https://github.com/siddharthskyhub" target="_blank" class="text-xs text-slate-400 hover:text-white transition flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-800 hover:bg-slate-800">
+        <i class="fa-brands fa-github text-sm"></i>
+        <span>GitHub</span>
+      </a>
+    </div>
+  </header>
+
+  <!-- Main Content Layout -->
+  <div class="flex-1 flex flex-col md:flex-row overflow-hidden">
+    
+    <!-- Left Sidebar: Documents & Knowledge Base -->
+    <aside class="w-full md:w-80 lg:w-96 border-r border-slate-800 bg-slate-900/50 p-5 flex flex-col space-y-5 overflow-y-auto">
+      
+      <!-- Upload Card -->
+      <div class="bg-slate-900/90 border border-slate-800 rounded-xl p-4 shadow-sm">
+        <h2 class="text-sm font-semibold text-slate-200 mb-2 flex items-center gap-2">
+          <i class="fa-solid fa-cloud-arrow-up text-sky-400"></i>
+          Ingest Document
+        </h2>
+        <div id="dropzone" class="border-2 border-dashed border-slate-700 hover:border-sky-500 rounded-lg p-5 text-center cursor-pointer transition bg-slate-950/40">
+          <i class="fa-solid fa-file-pdf text-3xl text-slate-500 mb-2"></i>
+          <p class="text-xs text-slate-300 font-medium">Click or Drag & Drop File</p>
+          <p class="text-[11px] text-slate-500 mt-1">Supports PDF, DOCX, TXT, MD</p>
+          <input type="file" id="fileInput" class="hidden" accept=".pdf,.docx,.txt,.md">
+        </div>
+        <div id="uploadProgress" class="hidden mt-3 text-xs text-sky-400 flex items-center justify-center gap-2">
+          <i class="fa-solid fa-circle-notch fa-spin"></i>
+          <span>Extracting text & generating embeddings...</span>
+        </div>
+      </div>
+
+      <!-- Quick Start Samples Button -->
+      <button id="loadSamplesBtn" class="w-full py-2.5 px-3 rounded-xl bg-gradient-to-r from-sky-600 to-indigo-600 hover:from-sky-500 hover:to-indigo-500 text-white text-xs font-semibold shadow-md shadow-sky-600/20 transition flex items-center justify-center gap-2">
+        <i class="fa-solid fa-wand-magic-sparkles"></i>
+        Load Built-in Sample Docs (1-Click)
+      </button>
+
+      <!-- Indexed Documents List -->
+      <div class="flex-1 flex flex-col">
+        <div class="flex items-center justify-between mb-2">
+          <h2 class="text-sm font-semibold text-slate-200 flex items-center gap-2">
+            <i class="fa-solid fa-database text-indigo-400"></i>
+            Indexed Documents
+          </h2>
+          <span id="docCountBadge" class="text-xs bg-slate-800 text-slate-400 px-2 py-0.5 rounded-full font-mono">0 docs</span>
+        </div>
+        <div id="documentsList" class="flex-1 space-y-2 overflow-y-auto pr-1">
+          <div class="text-center py-8 text-slate-500 text-xs">
+            <i class="fa-regular fa-folder-open text-2xl mb-2 block"></i>
+            No documents indexed yet.<br>Upload a file or click Load Samples!
+          </div>
+        </div>
+      </div>
+
+      <!-- Quick Metrics Footer -->
+      <div class="border-t border-slate-800 pt-3 text-[11px] text-slate-500 flex justify-between font-mono">
+        <span>Embeddings: <span class="text-slate-300">nomic-embed-text</span></span>
+        <span>LLM: <span class="text-slate-300">llama3.2</span></span>
+      </div>
+
+    </aside>
+
+    <!-- Main Workspace -->
+    <main class="flex-1 flex flex-col p-6 overflow-y-auto space-y-6">
+
+      <!-- Search & Mode Selector Card -->
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl">
+        
+        <!-- Mode Switcher Tabs -->
+        <div class="flex flex-wrap items-center justify-between gap-3 mb-4 border-b border-slate-800/80 pb-3">
+          <div class="flex items-center bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs font-medium">
+            <button class="mode-tab px-3 py-1.5 rounded-lg transition text-white bg-sky-600 shadow-sm" data-mode="hybrid">
+              <i class="fa-solid fa-layer-group mr-1.5"></i>Hybrid Search (RRF)
+            </button>
+            <button class="mode-tab px-3 py-1.5 rounded-lg transition text-slate-400 hover:text-white" data-mode="dense_only">
+              <i class="fa-solid fa-network-wired mr-1.5"></i>Dense Only (Embeddings)
+            </button>
+            <button class="mode-tab px-3 py-1.5 rounded-lg transition text-slate-400 hover:text-white" data-mode="sparse_only">
+              <i class="fa-solid fa-barcode mr-1.5"></i>Sparse Only (BM25)
+            </button>
+          </div>
+
+          <!-- Settings Toggle -->
+          <button id="toggleSettings" class="text-xs text-slate-400 hover:text-slate-200 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-800/60 hover:bg-slate-800 border border-slate-700/60">
+            <i class="fa-solid fa-sliders"></i>
+            <span>Retrieval Settings</span>
+          </button>
+        </div>
+
+        <!-- Collapsible Settings Drawer -->
+        <div id="settingsDrawer" class="hidden grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4 p-3 bg-slate-950/70 border border-slate-800 rounded-xl text-xs">
+          <div>
+            <label class="block text-slate-400 font-medium mb-1 flex justify-between">
+              <span>Top-K Results:</span>
+              <span id="topKVal" class="text-sky-400 font-mono font-bold">4</span>
+            </label>
+            <input type="range" id="topKInput" min="1" max="10" value="4" class="w-full accent-sky-500">
+          </div>
+          <div>
+            <label class="block text-slate-400 font-medium mb-1 flex justify-between">
+              <span>RRF &alpha; (Dense vs BM25):</span>
+              <span id="alphaVal" class="text-sky-400 font-mono font-bold">0.50</span>
+            </label>
+            <input type="range" id="alphaInput" min="0" max="1" step="0.05" value="0.5" class="w-full accent-sky-500">
+          </div>
+          <div>
+            <label class="block text-slate-400 font-medium mb-1 flex justify-between">
+              <span>LLM Temperature:</span>
+              <span id="tempVal" class="text-sky-400 font-mono font-bold">0.10</span>
+            </label>
+            <input type="range" id="tempInput" min="0" max="1" step="0.05" value="0.1" class="w-full accent-sky-500">
+          </div>
+        </div>
+
+        <!-- Query Input Bar -->
+        <div class="relative">
+          <input type="text" id="queryInput" placeholder="Ask anything about your technical documents, error codes, architecture, or policies..." class="w-full bg-slate-950 border border-slate-700/80 focus:border-sky-500 focus:ring-1 focus:ring-sky-500 rounded-xl px-4 py-3.5 pl-11 pr-28 text-sm text-slate-100 placeholder-slate-500 outline-none transition">
+          <i class="fa-solid fa-magnifying-glass absolute left-4 top-4 text-slate-500 text-sm"></i>
+          <button id="searchBtn" class="absolute right-2 top-2 bottom-2 px-5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-semibold text-xs transition flex items-center gap-1.5 shadow-sm">
+            <span>Query</span>
+            <i class="fa-solid fa-arrow-right"></i>
+          </button>
+        </div>
+
+        <!-- Example Queries Pill Carousel -->
+        <div class="mt-3 flex flex-wrap items-center gap-2 text-xs">
+          <span class="text-slate-500 text-[11px] font-medium">Quick Queries:</span>
+          <button class="sample-query px-2.5 py-1 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 border border-slate-700/60 transition">
+            What is the lease duration and timeout for Redlock?
+          </button>
+          <button class="sample-query px-2.5 py-1 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 border border-slate-700/60 transition">
+            What causes error ERR_AUTH_EXPIRED and ERR_RATE_LIMIT_EXCEEDED?
+          </button>
+          <button class="sample-query px-2.5 py-1 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 border border-slate-700/60 transition">
+            How are double-spending and race conditions prevented?
+          </button>
+        </div>
+      </div>
+
+      <!-- Loading State -->
+      <div id="queryLoading" class="hidden text-center py-12 space-y-3">
+        <div class="inline-block p-4 rounded-2xl bg-slate-900 border border-slate-800 shadow-xl">
+          <i class="fa-solid fa-circle-notch fa-spin text-3xl text-sky-400"></i>
+        </div>
+        <p class="text-sm font-medium text-slate-300" id="loadingStage">Running Hybrid Search across Dense & Sparse Indexes...</p>
+        <p class="text-xs text-slate-500">Reciprocal Rank Fusion &bull; Llama 3.2 Citation Synthesis</p>
+      </div>
+
+      <!-- Results Container -->
+      <div id="resultsContainer" class="hidden space-y-6">
+
+        <!-- Latency & Mode Summary Bar -->
+        <div class="flex flex-wrap items-center justify-between text-xs font-mono text-slate-400 bg-slate-900/60 px-4 py-2.5 rounded-xl border border-slate-800/80">
+          <div class="flex items-center gap-3">
+            <span class="flex items-center gap-1.5 text-slate-300">
+              <i class="fa-regular fa-clock text-sky-400"></i>
+              Total: <span id="metricTotalTime" class="text-white font-bold">0ms</span>
+            </span>
+            <span class="text-slate-600">|</span>
+            <span>Retrieval: <span id="metricRetTime" class="text-slate-300">0ms</span></span>
+            <span class="text-slate-600">|</span>
+            <span>LLM Synthesis: <span id="metricGenTime" class="text-slate-300">0ms</span></span>
+          </div>
+          <div>
+            <span id="metricModeBadge" class="px-2 py-0.5 rounded bg-sky-500/10 text-sky-400 border border-sky-500/20 font-sans font-medium uppercase text-[10px]">HYBRID (RRF)</span>
+          </div>
+        </div>
+
+        <!-- AI Grounded Answer Card -->
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl relative overflow-hidden">
+          <div class="flex items-center justify-between mb-4 border-b border-slate-800 pb-3">
+            <div class="flex items-center gap-2">
+              <div class="w-8 h-8 rounded-lg bg-sky-500/10 border border-sky-500/20 flex items-center justify-center text-sky-400">
+                <i class="fa-solid fa-shield-halved"></i>
+              </div>
+              <h2 class="font-bold text-slate-100 text-sm">Grounded Answer (With Citations)</h2>
+            </div>
+            
+            <!-- Grounding Faithfulness Badge -->
+            <div id="faithfulnessBadge" class="flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+              <i class="fa-solid fa-circle-check"></i>
+              <span id="faithfulnessScore">100% Grounded</span>
+            </div>
+          </div>
+
+          <!-- Answer Body -->
+          <div id="answerContent" class="prose prose-invert max-w-none text-sm leading-relaxed text-slate-200">
+            <!-- Rendered Markdown goes here -->
+          </div>
+
+          <!-- Warning Bar (if model hallucinated ungrounded info) -->
+          <div id="warningBar" class="hidden mt-4 p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs text-amber-300 flex items-start gap-2">
+            <i class="fa-solid fa-triangle-exclamation text-amber-400 mt-0.5"></i>
+            <div id="warningText"></div>
+          </div>
+        </div>
+
+        <!-- Retrieved Source Chunks (RRF Evidence) -->
+        <div>
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="text-sm font-bold text-slate-200 flex items-center gap-2">
+              <i class="fa-solid fa-quote-left text-sky-400"></i>
+              Retrieved Evidence Chunks (RRF Ranking)
+            </h3>
+            <span class="text-xs text-slate-400">Click citation tags above to highlight exact chunks</span>
+          </div>
+
+          <div id="chunksList" class="space-y-3">
+            <!-- Chunks dynamically generated here -->
+          </div>
+        </div>
+
+      </div>
+
+    </main>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
